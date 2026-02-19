@@ -1,0 +1,292 @@
+{
+  "name": "Jeeves Email Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "email.received"
+        ]
+      },
+      "type": "n8n-nodes-resend.resendTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f32324c8-7432-4bc6-8e8d-f00b81b53afd",
+      "name": "Resend Trigger",
+      "webhookId": "63782041-9221-4077-a541-0cc6e8d844a8",
+      "credentials": {
+        "resendWebhookSigningSecretApi": {
+          "id": "KAj9gwi7XeSHp1Ax",
+          "name": "Resend Webhook Signing Secret account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "receivingEmails",
+        "operation": "get",
+        "receivedEmailId": {
+          "__rl": true,
+          "value": "={{ $json.data.email_id }}",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-resend.resend",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "832f26fe-f274-4845-8d33-8e6850604a0d",
+      "name": "Get received email details",
+      "webhookId": "0bddf4c1-a30f-404e-a9dd-24810d1e613e",
+      "credentials": {
+        "resendApi": {
+          "id": "SfN7zqGuDFvgtlgL",
+          "name": "Resend account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node: Parse Email AND Build Letta Request\n// This node extracts data from forwarded email and formats it for Letta API\n\n// Get the email data from the previous node (Resend Get Email)\nconst emailData = $input.all()[0].json;\n\n// Extract basic info\nconst forwarderEmail = emailData.from; // james.whitford0@gmail.com (Bob)\nconst forwarderName = emailData.from.match(/\"([^\"]+)\"/)?.[1] || forwarderEmail;\nconst rawSubject = emailData.subject; // \"Fwd: test\"\nconst emailText = emailData.text; // Plain text version\nconst emailHtml = emailData.html; // HTML version\n\n// Remove \"Fwd: \" or \"FW: \" from subject\nconst originalSubject = rawSubject.replace(/^(Fwd:|FW:)\\s*/i, '').trim();\n\n// Parse the forwarded message to extract original sender\nconst fromMatch = emailText.match(/From:\\s*(.+?)\\s*<(.+?)>/i);\nconst originalSenderName = fromMatch ? fromMatch[1].trim() : null;\nconst originalSenderEmail = fromMatch ? fromMatch[2].trim() : null;\n\n// Extract the original message content\nconst contentMatch = emailText.match(/Date:.*?\\n\\n([\\s\\S]+)/i);\nconst originalMessage = contentMatch ? contentMatch[1].trim() : emailText;\n\n// Extract Bob's forwarding note\nconst bobNoteMatch = emailText.match(/^([\\s\\S]*?)>\\s*Begin forwarded message:/i);\nconst bobNote = bobNoteMatch ? bobNoteMatch[1].trim() : '';\n\n// Build the Letta API request\nconst messageText = `I received a forwarded email from ${forwarderName} (${forwarderEmail}). The original email was from ${originalSenderName} <${originalSenderEmail}> with subject '${originalSubject}'. Original message: ${originalMessage}. Please draft a professional reply to ${originalSenderEmail}.`;\n\nreturn {\n  json: {\n    messages: [\n      {\n        role: \"user\",\n        content: messageText\n      }\n    ],\n    // Pass through data we'll need later for sending the reply\n    forwarderEmail: forwarderEmail,\n    originalSenderEmail: originalSenderEmail,\n    originalSubject: originalSubject\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        0
+      ],
+      "id": "abd62d0a-4066-46e4-816b-ea47f7321d38",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.letta.com/v1/agents/agent-c1234cbb-00f7-4144-a951-85a70b6a4c89/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messages",
+              "value": "={{ $json.messages }}"
+            },
+            {
+              "name": "forwarderEmail",
+              "value": "={{ $json.forwarderEmail }}"
+            },
+            {
+              "name": "originalSenderEmail",
+              "value": "={{ $json.originalSenderEmail }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1056,
+        0
+      ],
+      "id": "bde02788-7e2d-4d0f-9d49-be8386b58344",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "4emV6WxtFyqxYsGH",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node: Extract Email from Letta Response\n// This node parses Letta's response and extracts the drafted email content\n// Note: CC is hardcoded in the Send Email node (no need to pass through)\n\n// Get the HTTP Request response (Letta API response)\nconst httpResponse = $input.all()[0].json;\n\n// Get the Letta response messages\nconst lettaResponse = httpResponse;\n\n// Find the LAST assistant message with the drafted email\n// Letta sends multiple messages, the actual draft is usually the last one\nlet emailContent = '';\n\nfor (const message of lettaResponse.messages) {\n  if (message.message_type === 'assistant_message' && message.content) {\n    // Check if this message contains the email draft (has \"To:\" or \"Subject:\")\n    if (message.content.includes('**To:**') || message.content.includes('**Subject:**')) {\n      emailContent = message.content;\n      // Don't break - keep looking for the last/best one\n    }\n  }\n}\n\n// If no formatted email found, use the last assistant message\nif (!emailContent) {\n  const assistantMessages = lettaResponse.messages.filter(m => m.message_type === 'assistant_message' && m.content);\n  if (assistantMessages.length > 0) {\n    emailContent = assistantMessages[assistantMessages.length - 1].content;\n  }\n}\n\n// Extract the email body between the --- markers\nconst emailMatch = emailContent.match(/---\\s*([\\s\\S]*?)\\s*---/);\nconst emailBody = emailMatch ? emailMatch[1].trim() : emailContent;\n\n// Parse the To, CC, Subject from the draft\nconst toMatch = emailBody.match(/\\*\\*To:\\*\\*\\s*(.+?)(?:\\n|$)/);\nconst subjectMatch = emailBody.match(/\\*\\*Subject:\\*\\*\\s*(.+?)(?:\\n|$)/);\n\n// Extract just the message body (after Subject line)\nconst bodyMatch = emailBody.match(/\\*\\*Subject:\\*\\*.*?\\n\\n([\\s\\S]+)/);\nconst messageBody = bodyMatch ? bodyMatch[1].trim() : emailBody;\n\nreturn {\n  json: {\n    emailBody: messageBody,\n    fullDraft: emailContent,\n    to: toMatch ? toMatch[1].trim() : null,\n    subject: subjectMatch ? subjectMatch[1].trim() : null\n    // Note: CC is hardcoded in the Send Email node\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "c59318e0-8115-434f-891e-ec729867b24b",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "from": "test@mail.ritzademo.com",
+        "to": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.emailBody }}",
+        "additionalOptions": {
+          "cc": "=james.whitford0@gmail.com"
+        }
+      },
+      "type": "n8n-nodes-resend.resend",
+      "typeVersion": 1,
+      "position": [
+        1472,
+        0
+      ],
+      "id": "2e7db0fd-3a2e-4059-8438-4221874c47bf",
+      "name": "Send a new email",
+      "webhookId": "236c2c12-8946-40cc-8510-bc31f9ed7c9c",
+      "credentials": {
+        "resendApi": {
+          "id": "SfN7zqGuDFvgtlgL",
+          "name": "Resend account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const emailData = $input.all()[0].json;\n\nconst PRIMARY_EMAIL = \"james.whitford0@gmail.com\"; // ← CHANGE THIS\n\n// Get the persistent whitelist (empty array on first run)\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.whitelist) {\n  staticData.whitelist = [PRIMARY_EMAIL.toLowerCase()];\n}\nconst whitelist = staticData.whitelist;\n\n// Extract sender\nconst senderEmail = emailData.from.toLowerCase().trim();\nconst isForwardedFromPrimary = senderEmail === PRIMARY_EMAIL.toLowerCase();\n\n// Parse original sender from forwarded body\nconst emailText = emailData.text || \"\";\nconst fromMatch = emailText.match(/From:\\s*(.+?)\\s*<(.+?)>/i);\nconst originalSenderEmail = fromMatch ? fromMatch[2].trim().toLowerCase() : null;\n\n// If primary email is forwarding, add original sender to whitelist\nif (isForwardedFromPrimary && originalSenderEmail && !whitelist.includes(originalSenderEmail)) {\n  whitelist.push(originalSenderEmail);\n  staticData.whitelist = whitelist;\n}\n\n// Check if sender is authorised\nconst isAuthorised = isForwardedFromPrimary || whitelist.includes(senderEmail);\n\nreturn {\n  json: {\n    ...emailData,\n    senderEmail,\n    isForwardedFromPrimary,\n    originalSenderEmail,\n    isAuthorised\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        16
+      ],
+      "id": "7083db56-2f02-4dbb-8654-7cf3378c7612",
+      "name": "Check Sender & Whitelist"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "af2b5461-2745-4722-ae73-eefe0860a85c",
+              "leftValue": "={{ $json.isAuthorised }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        16
+      ],
+      "id": "58c0fe4b-15ea-4c67-b7e6-d38dcf7177fa",
+      "name": "Is Authorised?"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Resend Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get received email details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get received email details": {
+      "main": [
+        [
+          {
+            "node": "Check Sender & Whitelist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Send a new email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a new email": {
+      "main": [
+        []
+      ]
+    },
+    "Check Sender & Whitelist": {
+      "main": [
+        [
+          {
+            "node": "Is Authorised?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Authorised?": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "97d12f87-c6e6-4cbe-99ea-3a9fe0a7e44b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "89bd49aa040da42a93cb8d444c2937c39b5e4b8051bba113461920b15dcc99bf"
+  },
+  "id": "b2DwURUUd0zR4bWu",
+  "tags": []
+}

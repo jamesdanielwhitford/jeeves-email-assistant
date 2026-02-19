@@ -18,7 +18,7 @@
       "webhookId": "63782041-9221-4077-a541-0cc6e8d844a8",
       "credentials": {
         "resendWebhookSigningSecretApi": {
-          "id": "KAj9gwi7XeSHp1Ax",
+          "id": "",
           "name": "Resend Webhook Signing Secret account"
         }
       }
@@ -44,14 +44,14 @@
       "webhookId": "0bddf4c1-a30f-404e-a9dd-24810d1e613e",
       "credentials": {
         "resendApi": {
-          "id": "SfN7zqGuDFvgtlgL",
+          "id": "",
           "name": "Resend account"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "// n8n Code Node: Parse Email AND Build Letta Request\n// This node extracts data from forwarded email and formats it for Letta API\n\n// Get the email data from the previous node (Resend Get Email)\nconst emailData = $input.all()[0].json;\n\n// Extract basic info\nconst forwarderEmail = emailData.from; // james.whitford0@gmail.com (Bob)\nconst forwarderName = emailData.from.match(/\"([^\"]+)\"/)?.[1] || forwarderEmail;\nconst rawSubject = emailData.subject; // \"Fwd: test\"\nconst emailText = emailData.text; // Plain text version\nconst emailHtml = emailData.html; // HTML version\n\n// Remove \"Fwd: \" or \"FW: \" from subject\nconst originalSubject = rawSubject.replace(/^(Fwd:|FW:)\\s*/i, '').trim();\n\n// Parse the forwarded message to extract original sender\nconst fromMatch = emailText.match(/From:\\s*(.+?)\\s*<(.+?)>/i);\nconst originalSenderName = fromMatch ? fromMatch[1].trim() : null;\nconst originalSenderEmail = fromMatch ? fromMatch[2].trim() : null;\n\n// Extract the original message content\nconst contentMatch = emailText.match(/Date:.*?\\n\\n([\\s\\S]+)/i);\nconst originalMessage = contentMatch ? contentMatch[1].trim() : emailText;\n\n// Extract Bob's forwarding note\nconst bobNoteMatch = emailText.match(/^([\\s\\S]*?)>\\s*Begin forwarded message:/i);\nconst bobNote = bobNoteMatch ? bobNoteMatch[1].trim() : '';\n\n// Build the Letta API request\nconst messageText = `I received a forwarded email from ${forwarderName} (${forwarderEmail}). The original email was from ${originalSenderName} <${originalSenderEmail}> with subject '${originalSubject}'. Original message: ${originalMessage}. Please draft a professional reply to ${originalSenderEmail}.`;\n\nreturn {\n  json: {\n    messages: [\n      {\n        role: \"user\",\n        content: messageText\n      }\n    ],\n    // Pass through data we'll need later for sending the reply\n    forwarderEmail: forwarderEmail,\n    originalSenderEmail: originalSenderEmail,\n    originalSubject: originalSubject\n  }\n};\n"
+        "jsCode": "// n8n Code Node: Parse Email AND Build Letta Request\n// This node extracts data from forwarded email and formats it for Letta API\n\n// Get the email data from the previous node (Resend Get Email)\nconst emailData = $input.all()[0].json;\n\n// Extract basic info\nconst forwarderEmail = emailData.from;\nconst forwarderName = emailData.from.match(/\"([^\"]+)\"/)?.[1] || forwarderEmail;\nconst rawSubject = emailData.subject;\nconst emailText = emailData.text; // Plain text version\nconst emailHtml = emailData.html; // HTML version\n\n// Remove \"Fwd: \" or \"FW: \" from subject\nconst originalSubject = rawSubject.replace(/^(Fwd:|FW:)\\s*/i, '').trim();\n\n// Parse the forwarded message to extract original sender\nconst fromMatch = emailText.match(/From:\\s*(.+?)\\s*<(.+?)>/i);\nconst originalSenderName = fromMatch ? fromMatch[1].trim() : null;\nconst originalSenderEmail = fromMatch ? fromMatch[2].trim() : null;\n\n// Extract the original message content\nconst contentMatch = emailText.match(/Date:.*?\\n\\n([\\s\\S]+)/i);\nconst originalMessage = contentMatch ? contentMatch[1].trim() : emailText;\n\n// Build the Letta API request\nconst messageText = `I received a forwarded email from ${forwarderName} (${forwarderEmail}). The original email was from ${originalSenderName} <${originalSenderEmail}> with subject '${originalSubject}'. Original message: ${originalMessage}. Please draft a professional reply to ${originalSenderEmail}.`;\n\nreturn {\n  json: {\n    messages: [\n      {\n        role: \"user\",\n        content: messageText\n      }\n    ],\n    // Pass through data we'll need later for sending the reply\n    forwarderEmail: forwarderEmail,\n    originalSenderEmail: originalSenderEmail,\n    originalSubject: originalSubject\n  }\n};\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -65,7 +65,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.letta.com/v1/agents/agent-c1234cbb-00f7-4144-a951-85a70b6a4c89/messages",
+        "url": "https://api.letta.com/v1/agents/YOUR_AGENT_ID/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
@@ -97,7 +97,7 @@
       "name": "HTTP Request",
       "credentials": {
         "httpHeaderAuth": {
-          "id": "4emV6WxtFyqxYsGH",
+          "id": "",
           "name": "Header Auth account"
         }
       }
@@ -117,13 +117,13 @@
     },
     {
       "parameters": {
-        "from": "test@mail.ritzademo.com",
+        "from": "jeeves@mail.yourdomain.com",
         "to": "={{ $json.to }}",
         "subject": "={{ $json.subject }}",
         "emailFormat": "text",
         "text": "={{ $json.emailBody }}",
         "additionalOptions": {
-          "cc": "=james.whitford0@gmail.com"
+          "cc": "=you@example.com"
         }
       },
       "type": "n8n-nodes-resend.resend",
@@ -137,14 +137,14 @@
       "webhookId": "236c2c12-8946-40cc-8510-bc31f9ed7c9c",
       "credentials": {
         "resendApi": {
-          "id": "SfN7zqGuDFvgtlgL",
+          "id": "",
           "name": "Resend account"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "const emailData = $input.all()[0].json;\n\nconst PRIMARY_EMAIL = \"james.whitford0@gmail.com\"; // ← CHANGE THIS\n\n// Get the persistent whitelist (empty array on first run)\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.whitelist) {\n  staticData.whitelist = [PRIMARY_EMAIL.toLowerCase()];\n}\nconst whitelist = staticData.whitelist;\n\n// Extract sender\nconst senderEmail = emailData.from.toLowerCase().trim();\nconst isForwardedFromPrimary = senderEmail === PRIMARY_EMAIL.toLowerCase();\n\n// Parse original sender from forwarded body\nconst emailText = emailData.text || \"\";\nconst fromMatch = emailText.match(/From:\\s*(.+?)\\s*<(.+?)>/i);\nconst originalSenderEmail = fromMatch ? fromMatch[2].trim().toLowerCase() : null;\n\n// If primary email is forwarding, add original sender to whitelist\nif (isForwardedFromPrimary && originalSenderEmail && !whitelist.includes(originalSenderEmail)) {\n  whitelist.push(originalSenderEmail);\n  staticData.whitelist = whitelist;\n}\n\n// Check if sender is authorised\nconst isAuthorised = isForwardedFromPrimary || whitelist.includes(senderEmail);\n\nreturn {\n  json: {\n    ...emailData,\n    senderEmail,\n    isForwardedFromPrimary,\n    originalSenderEmail,\n    isAuthorised\n  }\n};"
+        "jsCode": "const emailData = $input.all()[0].json;\n\nconst PRIMARY_EMAIL = \"you@example.com\"; // ← CHANGE THIS\n\n// Get the persistent allow list (empty array on first run)\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.allowList) {\n  staticData.allowList = [PRIMARY_EMAIL.toLowerCase()];\n}\nconst allowList = staticData.allowList;\n\n// Extract sender\nconst senderEmail = emailData.from.toLowerCase().trim();\nconst isFromPrimary = senderEmail === PRIMARY_EMAIL.toLowerCase();\n\n// Parse original sender from forwarded body\nconst emailText = emailData.text || \"\";\nconst fromMatch = emailText.match(/From:\\s*(.+?)\\s*<(.+?)>/i);\nconst originalSenderEmail = fromMatch ? fromMatch[2].trim().toLowerCase() : null;\n\n// If primary email is forwarding, add original sender to allow list\nif (isFromPrimary && originalSenderEmail && !allowList.includes(originalSenderEmail)) {\n  allowList.push(originalSenderEmail);\n  staticData.allowList = allowList;\n}\n\n// Check if sender is authorised\nconst isAuthorised = isFromPrimary || allowList.includes(senderEmail);\n\nreturn {\n  json: {\n    ...emailData,\n    senderEmail,\n    isFromPrimary,\n    originalSenderEmail,\n    isAuthorised\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -276,7 +276,7 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -285,7 +285,7 @@
   "versionId": "97d12f87-c6e6-4cbe-99ea-3a9fe0a7e44b",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "89bd49aa040da42a93cb8d444c2937c39b5e4b8051bba113461920b15dcc99bf"
+    "instanceId": ""
   },
   "id": "b2DwURUUd0zR4bWu",
   "tags": []
